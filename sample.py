@@ -89,13 +89,13 @@ with torch.no_grad():
         for k in range(num_samples):
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
-            start_time = time.perf_counter()
+            start_time = time.time()
 
             y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
 
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
-            end_time = time.perf_counter()
+            end_time = time.time()
             time = end_time - start_time
             generate_times.append(time)
 
