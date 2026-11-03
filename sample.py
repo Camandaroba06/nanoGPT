@@ -84,23 +84,19 @@ x = (torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...])
 # run generation
 generate_times = []
 
+torch.cuda.synchronize()
 with torch.no_grad():
     with ctx:
         for k in range(num_samples):
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
             start_time = time.time()
-
             y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
-
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
             end_time = time.time()
-            time = end_time - start_time
-            generate_times.append(time)
+
+            elapsed_time = end_time - start_time
+            generate_times.append(elapsed_time)
 
             print(decode(y[0].tolist()))
-            print(f"Latency time: {time:.3f} s ({time * 1000:.2f} ms)")
+            print(f"Latency time: {elapsed_time:.3f} s ({elapsed_time * 1000:.2f} ms)")
             print('---------------')
 
 mean_time = sum(generate_times) / len(generate_times)
