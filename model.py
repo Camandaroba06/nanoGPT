@@ -99,10 +99,22 @@ class Block(nn.Module):
         self.attn = CausalSelfAttention(config)
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
+        self.block_type = getattr(config, 'block_type', 'seq')
 
     def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
-        x = x + self.mlp(self.ln_2(x))
+        if self.block_type == 'seq':
+            # Baseline: MHA -> FFN (ordem original do nanoGPT)
+            x = x + self.attn(self.ln_1(x))
+            x = x + self.mlp(self.ln_2(x))
+        elif self.block_type == 'inv':
+            # Invertido: FFN -> MHA
+            x = x + self.mlp(self.ln_1(x))
+            x = x + self.attn(self.ln_2(x))
+        elif self.block_type == 'par':
+            # Paralelo: MHA || FFN (soma das duas saídas)
+            x = x + self.attn(self.ln_1(x)) + self.mlp(self.ln_2(x))
+        else:
+            raise ValueError(f"block_type desconhecido: {self.block_type}")
         return x
 
 @dataclass
@@ -114,6 +126,7 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+    block_type: str = 'seq'  # 'seq' | 'inv' | 'par'
 
 class GPT(nn.Module):
 
