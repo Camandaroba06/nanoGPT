@@ -107,9 +107,11 @@ def prepare_split(split):
     return total_tokens
 
 if __name__ == "__main__":
-    splits = ["train", "validation", "test"]
+    print("Executando teste de sanidade da tokenização...")
+    validate_chunking("train", num_lines=1000) 
+    
+    # splits = ["train", "validation", "test"]
+    # for split in splits:
+    #    prepare_split(split)
 
-    for split in splits:
-        prepare_split(split)
-
-    print("\nWikiText-103 preparation completed!")
+    # print("\nWikiText-103 preparation completed!")
