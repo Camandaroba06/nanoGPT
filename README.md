@@ -21,7 +21,7 @@ Este trabalho investiga o impacto de rearranjos estruturais das camadas de Aten�
 Clonar o repositório:
 
 ```bash
-git clone <URL_DO_REPOSITORIO>
+git clone https://github.com/sophiawerneck/NOME_DO_REPOSITORIO/
 cd <NOME_DO_REPOSITORIO>
 ```
 
@@ -34,7 +34,7 @@ pip install -r requirements.txt
 <!-- Incluir outras instruções necessárias para configurar
      o ambiente e acessar os recursos utilizados. -->
 
-## Reprodução dos Resultados
+## Reprodução dos resultados
 
 <!-- Apresentar os comandos exatos, na ordem de execução,
      necessários para reproduzir os principais resultados do projeto. -->
