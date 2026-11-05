@@ -72,23 +72,26 @@ def train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, devic
     metrics_file = os.path.join(cfg.out_dir, f'metrics_{cfg.variant}.csv')
     if master_process and not os.path.exists(metrics_file):
         with open(metrics_file, 'w') as f:
-            f.write("iter,train_loss,val_loss,train_ppl,val_ppl\n")
+            f.write("iter,train_loss,val_loss,train_ppl,val_ppl,step_time_ms,val_latency_ms\n")
 
+    dt = 0.0 
+    
     while True:
         lr = get_lr(iter_num, cfg.warmup_iters, cfg.lr_decay_iters, cfg.learning_rate, cfg.min_lr) if cfg.decay_lr else cfg.learning_rate
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
 
         if iter_num % cfg.eval_interval == 0 and master_process:
-            losses = estimate_loss(model, cfg.eval_iters, ctx, cfg.data_dir, cfg.batch_size, cfg.block_size, device, device_type)
+            losses, val_latency_ms = estimate_loss(model, cfg.eval_iters, ctx, cfg.data_dir, cfg.batch_size, cfg.block_size, device, device_type)
             
             train_ppl = math.exp(losses['train'])
             val_ppl = math.exp(losses['val'])
+            step_time_ms = dt * 1000 # Tempo gasto no último batch de treino
             
-            print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f} | val ppl {val_ppl:.2f}")
+            print(f"step {iter_num}: val loss {losses['val']:.4f} | val ppl {val_ppl:.2f} | latência inf. {val_latency_ms:.2f}ms")
             
             with open(metrics_file, 'a') as f:
-                f.write(f"{iter_num},{losses['train']:.4f},{losses['val']:.4f},{train_ppl:.2f},{val_ppl:.2f}\n")
+                f.write(f"{iter_num},{losses['train']:.4f},{losses['val']:.4f},{train_ppl:.2f},{val_ppl:.2f},{step_time_ms:.2f},{val_latency_ms:.2f}\n")
 
             if losses['val'] < best_val_loss or cfg.always_save_checkpoint:
                 best_val_loss = losses['val']
