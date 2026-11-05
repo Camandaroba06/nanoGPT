@@ -6,6 +6,10 @@ from datasets import load_dataset
 
 DATASET_NAME = "Salesforce/wikitext"
 DATASET_CONFIG = "wikitext-103-raw-v1"
+
+# usei o wikitest 103 raw porque as palavras originais são preservadas (no wikitest 103 processado eles
+# substituem palavras raras por <unk>
+
 OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
 TOKENIZER_NAME = "gpt2"
 CHUNK_SIZE = 1_000_000
