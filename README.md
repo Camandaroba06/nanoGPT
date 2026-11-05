@@ -6,6 +6,7 @@ Exploring Alternative MHA–FFN Arrangements in Decoder-Only Transformers
 ## Resumo do Projeto
 
 <!-- Apresentar brevemente o projeto, seu objetivo e o problema investigado. -->
+Este trabalho investiga o impacto de rearranjos estruturais das camadas de Atenção Multi-Cabeça (MHA) e Redes Feed-Forward (FFN) na arquitetura Transformer decoder-only. Avaliamos empiricamente três configurações: a convencional (MHA → FFN), a invertida (FFN → MHA)  e a paralela (MHA ∥ FFN), paridade de parâmetros (~125M) e dados entre os modelos. Avaliamos o trade-off entre qualidade de modelagem (Perda e Perplexidade) e eficiência computacional (latência e speedup).
 
 ## Configuração do Ambiente
 
