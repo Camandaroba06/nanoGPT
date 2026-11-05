@@ -1,5 +1,7 @@
 
-# Nome do Projeto
+# Group 7:
+Exploring Alternative MHA–FFN Arrangements in Decoder-Only Transformers
+
 
 ## Resumo do Projeto
 
