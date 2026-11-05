@@ -1,5 +1,3 @@
-# Training Compute-Optimal Large Language Models (Hoffmann et al., 2022, DeepMind) - parametros modelo × 10 = número tokens necessários 
-
 import os
 import numpy as np
 import tiktoken
@@ -49,62 +47,87 @@ def validate_chunking(split, num_lines=1000):
         for example in dataset[split].take(num_lines)
     ]
 
-    # Tokenização do texto completo 
-    full_text = "\n".join(lines)
-    full_tokens = enc.encode_ordinary(full_text)
+    full_tokens = []
+
+    for text in lines:
+        full_tokens.extend(enc.encode_ordinary(text))
+        full_tokens.append(enc.eot_token)
 
     chunk_tokens = []
 
-    for chunk in iter_text_chunks_from_lines(lines):
-        chunk_tokens.extend(enc.encode_ordinary(chunk))
+    for chunk in iter_token_chunks(lines):
+        chunk_tokens.extend(chunk)
 
     if full_tokens == chunk_tokens:
         print("Tokenização equivalente no teste.")
+        print(f"Documentos processados: {len(lines):,}")
+        print(f"Tokens: {len(chunk_tokens):,}")
+        print(f"Tokens EOS: {chunk_tokens.count(enc.eot_token):,}")
     else:
         print("ATENÇÃO: diferenças na tokenização.")
 
-        # primeira posição divergente
         for i, (a, b) in enumerate(zip(full_tokens, chunk_tokens)):
             if a != b:
                 print(f"Primeira divergência na posição {i}:")
-                print(f"Token integral: {a}")
-                print(f"Token em chunks: {b}")
+                print(f"Token de referência: {a}")
+                print(f"Token em blocos: {b}")
                 break
 
-        print(f"Tokens no texto integral: {len(full_tokens)}")
-        print(f"Tokens em chunks: {len(chunk_tokens)}")
+        print(f"Tokens de referência: {len(full_tokens):,}")
+        print(f"Tokens em blocos: {len(chunk_tokens):,}")
         
-def iter_text_chunks(split, chunk_size=CHUNK_SIZE):
-    buffer = []
-    current_size = 0
+def iter_token_chunks(texts, chunk_size=CHUNK_SIZE):
+    token_buffer = []
 
-    for example in dataset[split]:
-        line = example["text"]
+    for text in texts:
+        document_tokens = enc.encode_ordinary(text)
+        document_tokens.append(enc.eot_token)
 
-        buffer.append(line)
-        current_size += len(line) + 1  
+        # Finaliza o bloco antes de adicionar um documento que o ultrapassaria.
+        if token_buffer and len(token_buffer) + len(document_tokens) > chunk_size:
+            yield token_buffer
+            token_buffer = []
 
-        if current_size >= chunk_size:
-            yield "\n".join(buffer) + "\n"
-            buffer = []
-            current_size = 0
+        token_buffer.extend(document_tokens)
 
-    if buffer:
-        yield "\n".join(buffer)
+        # O bloco é finalizado somente após um documento completo.
+        if len(token_buffer) >= chunk_size:
+            yield token_buffer
+            token_buffer = []
+
+    if token_buffer:
+        yield token_buffer
 
 def prepare_split(split, max_tokens):
     output_path = os.path.join(OUTPUT_DIR, f"{split}.bin")
     total_tokens = 0
 
-    with open(output_path, "wb") as output_file:
-        for chunk in iter_text_chunks(split):
-            token_ids = enc.encode_ordinary(chunk)
-            token_array = np.asarray(token_ids, dtype=np.uint16)
+    texts = (
+        example["text"]
+        for example in dataset[split].shuffle(
+            seed=42,
+            buffer_size=10_000
+        )
+    )
 
+    with open(output_path, "wb") as output_file:
+        for token_chunk in iter_token_chunks(texts):
+            remaining = max_tokens - total_tokens
+
+            if remaining <= 0:
+                break
+
+            if len(token_chunk) > remaining:
+                token_chunk = token_chunk[:remaining]
+
+                if token_chunk:
+                    token_chunk[-1] = enc.eot_token
+
+            token_array = np.asarray(token_chunk, dtype=np.uint16)
             token_array.tofile(output_file)
+
             total_tokens += len(token_array)
 
-            # 5. Condição de parada adicionada para respeitar o limite de tokens
             if total_tokens >= max_tokens:
                 print(f"Limite de {max_tokens:,} tokens atingido para '{split}'.")
                 break
@@ -113,13 +136,13 @@ def prepare_split(split, max_tokens):
     return total_tokens
 
 if __name__ == "__main__":
-    print("Executando teste de sanidade da tokenização (1000 linhas)...")
+    print("Executando teste de sanidade da tokenização (1000 documentos)...")
     validate_chunking("train", num_lines=1000)
 
-    # splits = {"train": MAX_TOKENS_TRAIN, "validation": MAX_TOKENS_VAL}
+    splits = {"train": MAX_TOKENS_TRAIN, "validation": MAX_TOKENS_VAL}
 
-    # for split, max_tokens in splits.items():
-    #    print(f"\nPreparando {split}...")
-    #    prepare_split(split, max_tokens)
+    for split, max_tokens in splits.items():
+        print(f"\nPreparando {split}...")
+        prepare_split(split, max_tokens)
 
-    # print("\nC4 preparation completed!")
+    print("\nC4 preparation completed!")
