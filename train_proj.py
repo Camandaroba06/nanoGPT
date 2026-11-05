@@ -29,17 +29,28 @@ def get_batch(split, data_dir, batch_size, block_size, device, device_type):
 @torch.no_grad()
 def estimate_loss(model, eval_iters, ctx, data_dir, batch_size, block_size, device, device_type):
     out = {}
+    inference_latency_ms = 0.0
+    
     model.eval()
     for split in ['train', 'val']:
         losses = torch.zeros(eval_iters)
+        
+        t_start = time.time()
         for k in range(eval_iters):
             X, Y = get_batch(split, data_dir, batch_size, block_size, device, device_type)
             with ctx:
                 logits, loss = model(X, Y)
             losses[k] = loss.item()
+        t_end = time.time()
+        
         out[split] = losses.mean()
+        
+        if split == 'val':
+            # Tempo total dividido pelo número de iterações = Latência média por batch (em milissegundos)
+            inference_latency_ms = ((t_end - t_start) / eval_iters) * 1000 
+            
     model.train()
-    return out
+    return out, inference_latency_ms
 
 def get_lr(it, warmup_iters, lr_decay_iters, learning_rate, min_lr):
     if it < warmup_iters:
