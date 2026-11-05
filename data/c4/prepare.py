@@ -11,7 +11,10 @@ DATASET_CONFIG = "en"
 MAX_TOKENS_TRAIN = 3_000_000_000  
 MAX_TOKENS_VAL = 100_000_000 
 
-OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
+base_dir = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(base_dir, 'data', 'c4')
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 TOKENIZER_NAME = "gpt2"
 CHUNK_SIZE = 1_000_000
 
