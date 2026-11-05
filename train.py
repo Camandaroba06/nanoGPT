@@ -81,48 +81,92 @@ def train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, devic
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
 
-        if iter_num % cfg.eval_interval == 0 and master_process:
-            losses, val_latency_ms = estimate_loss(model, cfg.eval_iters, ctx, cfg.data_dir, cfg.batch_size, cfg.block_size, device, device_type)
-            
-            train_ppl = math.exp(losses['train'])
-            val_ppl = math.exp(losses['val'])
-            step_time_ms = dt * 1000 # Tempo gasto no último batch de treino
-            
-            print(f"step {iter_num}: val loss {losses['val']:.4f} | val ppl {val_ppl:.2f} | latência inf. {val_latency_ms:.2f}ms")
-            
-            with open(metrics_file, 'a') as f:
-                f.write(f"{iter_num},{losses['train']:.4f},{losses['val']:.4f},{train_ppl:.2f},{val_ppl:.2f},{step_time_ms:.2f},{val_latency_ms:.2f}\n")
+        should_eval = (iter_num % cfg.eval_interval == 0 or iter_num == cfg.max_iters)
 
-            if losses['val'] < best_val_loss or cfg.always_save_checkpoint:
-                best_val_loss = losses['val']
-                if iter_num > 0:
-                    checkpoint = {
-                        'model': raw_model.state_dict(),
-                        'optimizer': optimizer.state_dict(),
-                        'model_args': cfg.model_args,
-                        'iter_num': iter_num,
-                        'best_val_loss': best_val_loss,
-                    }
-                    print(f"Salvo checkpoint em {cfg.out_dir}")
-                    torch.save(checkpoint, os.path.join(cfg.out_dir, 'ckpt.pt'))
-        
+        if should_eval:
+            if cfg.ddp:
+                torch.distributed.barrier()
+
+            if master_process:
+                losses, val_latency_ms = estimate_loss(
+                    raw_model,
+                    cfg.eval_iters,
+                    ctx,
+                    cfg.data_dir,
+                    cfg.batch_size,
+                    cfg.block_size,
+                    device,
+                    device_type
+                )
+
+                train_ppl = math.exp(losses['train'])
+                val_ppl = math.exp(losses['val'])
+                step_time_ms = dt * 1000
+
+                print(
+                    f"step {iter_num}: val loss {losses['val']:.4f} | "
+                    f"val ppl {val_ppl:.2f} | "
+                    f"latência inf. {val_latency_ms:.2f}ms"
+                )
+
+                with open(metrics_file, 'a') as f:
+                    f.write(
+                        f"{iter_num},{losses['train']:.4f},"
+                        f"{losses['val']:.4f},{train_ppl:.2f},"
+                        f"{val_ppl:.2f},{step_time_ms:.2f},"
+                        f"{val_latency_ms:.2f}\n"
+                    )
+
+                if losses['val'] < best_val_loss or cfg.always_save_checkpoint:
+                    best_val_loss = losses['val']
+
+                    if iter_num > 0:
+                        checkpoint = {
+                            'model': raw_model.state_dict(),
+                            'optimizer': optimizer.state_dict(),
+                            'model_args': cfg.model_args,
+                            'iter_num': iter_num,
+                            'best_val_loss': best_val_loss,
+                        }
+
+                        print(f"Salvo checkpoint em {cfg.out_dir}")
+                        torch.save(
+                            checkpoint,
+                            os.path.join(cfg.out_dir, 'ckpt.pt')
+                        )
+
+            if cfg.ddp:
+                torch.distributed.barrier()
+
         if iter_num == 0 and cfg.eval_only:
             break
 
+        if iter_num >= cfg.max_iters:
+            break
+
+        loss_accum = 0.0
+
         for micro_step in range(cfg.gradient_accumulation_steps):
             if cfg.ddp:
-                model.require_backward_grad_sync = (micro_step == cfg.gradient_accumulation_steps - 1)
+                model.require_backward_grad_sync = (
+                    micro_step == cfg.gradient_accumulation_steps - 1
+                )
+
             with ctx:
                 logits, loss = model(X, Y)
                 loss = loss / cfg.gradient_accumulation_steps
-            
-            X, Y = get_batch('train', cfg.data_dir, cfg.batch_size, cfg.block_size, device, device_type)
+                loss_accum += loss.detach().float()
+
+            X, Y = get_batch(
+                'train', cfg.data_dir, cfg.batch_size,
+                cfg.block_size, device, device_type
+            )
             scaler.scale(loss).backward()
-        
+
         if cfg.grad_clip != 0.0:
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
-        
+
         scaler.step(optimizer)
         scaler.update()
         optimizer.zero_grad(set_to_none=True)
@@ -130,18 +174,24 @@ def train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, devic
         t1 = time.time()
         dt = t1 - t0
         t0 = t1
+
         if iter_num % cfg.log_interval == 0 and master_process:
-            lossf = loss.item() * cfg.gradient_accumulation_steps
-            if local_iter_num >= 5: 
-                mfu = raw_model.estimate_mfu(cfg.batch_size * cfg.gradient_accumulation_steps, dt)
-                running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
-            print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
-        
+            lossf = loss_accum.item()
+
+            if local_iter_num >= 5:
+                mfu = raw_model.estimate_mfu(
+                    cfg.batch_size * cfg.gradient_accumulation_steps, dt
+                )
+                running_mfu = mfu if running_mfu == -1.0 else 0.9 * running_mfu + 0.1 * mfu
+
+            print(
+                f"iter {iter_num}: loss {lossf:.4f}, "
+                f"time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%"
+            )
+
         iter_num += 1
         local_iter_num += 1
 
-        if iter_num > cfg.max_iters:
-            break
 
 def main():
     parser = argparse.ArgumentParser(description="Treinamento nanoGPT Refatorado")
@@ -216,7 +266,7 @@ def main():
     tokens_per_iter = cfg.gradient_accumulation_steps * ddp_world_size * cfg.batch_size * cfg.block_size
     if master_process:
         print(f"==== Iniciando Treinamento ====")
-        print(f"Variante Arquitetural: {cfg.variant.upper()}")
+        print(f"Variante arquitetural: {cfg.block_type.upper()}")
         print(f"Tokens por iteração: {tokens_per_iter:,}")
         os.makedirs(cfg.out_dir, exist_ok=True)
         
@@ -237,17 +287,31 @@ def main():
         model = GPT(gptconf)
         
     model.to(device)
+    num_params = sum(p.numel() for p in model.parameters())
+
+    planned_train_tokens = cfg.max_iters * tokens_per_iter
+    tokens_per_parameter = planned_train_tokens / num_params
+
+    if master_process:
+        print(f"Parâmetros do modelo: {num_params:,}")
+        print(f"Tokens planejados: {planned_train_tokens:,}")
+        print(f"Tokens por parâmetro: {tokens_per_parameter:.2f}")
+
     scaler = torch.cuda.amp.GradScaler(enabled=(cfg.dtype == 'float16'))
     optimizer = model.configure_optimizers(cfg.weight_decay, cfg.learning_rate, (cfg.beta1, cfg.beta2), device_type)
     
     if cfg.compile:
-        if master_process: print("Compilando o modelo...")
+        if master_process: 
+            print("Compilando o modelo...")
         model = torch.compile(model)
         
     if ddp:
         model = DDP(model, device_ids=[ddp_local_rank])
         
     raw_model = model.module if ddp else model
+
+    if cfg.compile:
+        raw_model = raw_model._orig_mod
 
     train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, device_type, raw_model)
 
