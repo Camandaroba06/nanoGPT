@@ -1,4 +1,4 @@
-
+# acho que é melhor usar o wikitest somente para debug por conta do risco de overfitting
 import os
 import numpy as np
 import tiktoken
