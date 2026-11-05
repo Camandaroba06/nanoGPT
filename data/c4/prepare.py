@@ -41,7 +41,7 @@ def iter_text_chunks_from_lines(lines, chunk_size=CHUNK_SIZE):
     if buffer:
         yield "\n".join(buffer)
 
-def validate_chunking(split, num_lines=1000):
+def validate_chunking(split, num_lines=1000, chunk_size=1024):
     lines = [
         example["text"]
         for example in dataset[split].take(num_lines)
@@ -55,7 +55,7 @@ def validate_chunking(split, num_lines=1000):
 
     chunk_tokens = []
 
-    for chunk in iter_token_chunks(lines):
+    for chunk in iter_token_chunks(lines, chunk_size=chunk_size):
         chunk_tokens.extend(chunk)
 
     if full_tokens == chunk_tokens:
@@ -137,7 +137,7 @@ def prepare_split(split, max_tokens):
 
 if __name__ == "__main__":
     print("Executando teste de sanidade da tokenização (1000 documentos)...")
-    validate_chunking("train", num_lines=1000)
+    validate_chunking("train", num_lines=1000, chunk_size=1024)
 
     splits = {"train": MAX_TOKENS_TRAIN, "validation": MAX_TOKENS_VAL}
 
