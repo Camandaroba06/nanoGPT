@@ -69,7 +69,7 @@ def train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, devic
     best_val_loss = cfg.best_val_loss
     running_mfu = -1.0
 
-    metrics_file = os.path.join(cfg.out_dir, f'metrics_{cfg.variant}.csv')
+    metrics_file = os.path.join(cfg.out_dir, f'metrics_{cfg.block_type}.csv')
     if master_process and not os.path.exists(metrics_file):
         with open(metrics_file, 'w') as f:
             f.write("iter,train_loss,val_loss,train_ppl,val_ppl,step_time_ms,val_latency_ms\n")
@@ -145,13 +145,13 @@ def train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, devic
 
 def main():
     parser = argparse.ArgumentParser(description="Treinamento nanoGPT Refatorado")
-    parser.add_argument('--variant', type=str, default='baseline', choices=['baseline', 'inverted', 'parallel'], help="Variação da arquitetura para testar")
+    parser.add_argument('--block_type', type=str, default='seq', choices=['seq', 'inv', 'par'])
     args = parser.parse_args()
 
     class Config:
-        variant = args.variant
+        block_type = args.block_type
+        out_dir = f'out_{block_type}'
         dataset = 'c4'
-        out_dir = f'out_{variant}' 
         data_dir = os.path.join('data', dataset)
         
         eval_interval = 250
@@ -228,8 +228,7 @@ def main():
     ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[cfg.dtype]
     ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
-    model_args = dict(n_layer=cfg.n_layer, n_head=cfg.n_head, n_embd=cfg.n_embd, block_size=cfg.block_size,
-                      bias=cfg.bias, vocab_size=50304, dropout=cfg.dropout, variant=cfg.variant)
+    model_args = dict(n_layer=cfg.n_layer, n_head=cfg.n_head, n_embd=cfg.n_embd, block_size=cfg.block_size, bias=cfg.bias, vocab_size=50304, dropout=cfg.dropout, block_type=cfg.block_type)
     cfg.model_args = model_args
     
     if cfg.init_from == 'scratch':
