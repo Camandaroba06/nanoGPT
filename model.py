@@ -113,6 +113,9 @@ class Block(nn.Module):
         elif self.block_type == 'par':
             # Paralelo: MHA || FFN (soma das duas saídas)
             x = x + self.attn(self.ln_1(x)) + self.mlp(self.ln_2(x))
+        elif self.block_type == 'par_shared':
+            # Paralelo: MHA || FFN (soma das duas saídas)
+            x = x + self.attn(self.ln_1(x)) + self.mlp(self.ln_1(x))
         else:
             raise ValueError(f"block_type desconhecido: {self.block_type}")
         return x
