@@ -167,10 +167,12 @@ def train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, devic
             param_group['lr'] = lr
 
         should_eval = (iter_num % cfg.eval_interval == 0 or iter_num == cfg.max_iters)
-
         if should_eval:
+
             if cfg.ddp:
-                torch.distributed.barrier()
+                dist.barrier()
+
+            rank_states = collect_rank_states(X, Y, cfg.ddp)
 
             if master_process:
                 losses, val_latency_ms = estimate_loss(
@@ -194,13 +196,17 @@ def train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, devic
                     f"latência inf. {val_latency_ms:.2f}ms"
                 )
 
-                with open(metrics_file, 'a') as f:
-                    f.write(
-                        f"{iter_num},{losses['train']:.4f},"
-                        f"{losses['val']:.4f},{train_ppl:.2f},"
-                        f"{val_ppl:.2f},{step_time_ms:.2f},"
-                        f"{val_latency_ms:.2f}\n"
-                    )
+                with open(metrics_file, 'a', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        iter_num,
+                        f"{losses['train']:.4f}",
+                        f"{losses['val']:.4f}",
+                        f"{train_ppl:.2f}",
+                        f"{val_ppl:.2f}",
+                        f"{step_time_ms:.2f}",
+                        f"{val_latency_ms:.2f}"
+                    ])
 
                 if losses['val'] < best_val_loss or cfg.always_save_checkpoint:
                     best_val_loss = losses['val']
@@ -212,16 +218,18 @@ def train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, devic
                             'model_args': cfg.model_args,
                             'iter_num': iter_num,
                             'best_val_loss': best_val_loss,
+                            'scaler': scaler.state_dict(),
+                            'rank_states': rank_states,
                         }
 
                         print(f"Salvo checkpoint em {cfg.out_dir}")
-                        torch.save(
-                            checkpoint,
-                            os.path.join(cfg.out_dir, 'ckpt.pt')
+                        save_checkpoint(
+                            cfg.checkpoint_path,
+                            checkpoint
                         )
 
             if cfg.ddp:
-                torch.distributed.barrier()
+                dist.barrier()
 
         if iter_num == 0 and cfg.eval_only:
             break
@@ -243,14 +251,22 @@ def train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, devic
                 loss_accum += loss.detach().float()
 
             X, Y = get_batch(
-                'train', cfg.data_dir, cfg.batch_size,
-                cfg.block_size, device, device_type
+                'train',
+                cfg.data_dir,
+                cfg.batch_size,
+                cfg.block_size,
+                device,
+                device_type
             )
+
             scaler.scale(loss).backward()
 
         if cfg.grad_clip != 0.0:
             scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(),
+                cfg.grad_clip
+            )
 
         scaler.step(optimizer)
         scaler.update()
@@ -265,9 +281,13 @@ def train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, devic
 
             if local_iter_num >= 5:
                 mfu = raw_model.estimate_mfu(
-                    cfg.batch_size * cfg.gradient_accumulation_steps, dt
+                    cfg.batch_size * cfg.gradient_accumulation_steps,
+                    dt
                 )
-                running_mfu = mfu if running_mfu == -1.0 else 0.9 * running_mfu + 0.1 * mfu
+                running_mfu = (
+                    mfu if running_mfu == -1.0
+                    else 0.9 * running_mfu + 0.1 * mfu
+                )
 
             print(
                 f"iter {iter_num}: loss {lossf:.4f}, "
@@ -276,7 +296,6 @@ def train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, devic
 
         iter_num += 1
         local_iter_num += 1
-
 
 def main():
     parser = argparse.ArgumentParser(description="Treinamento nanoGPT Refatorado")
