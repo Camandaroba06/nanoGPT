@@ -73,7 +73,6 @@ def get_rng_state():
 
     return state
 
-
 def set_rng_state(state):
     random.setstate(state['python'])
     np.random.set_state(state['numpy'])
@@ -81,6 +80,25 @@ def set_rng_state(state):
 
     if torch.cuda.is_available() and 'cuda' in state:
         torch.cuda.set_rng_state_all(state['cuda'])
+
+def collect_rank_states(X, Y, ddp):
+    local_state = {
+        'rng': get_rng_state(),
+        'X': X.detach().cpu(),
+        'Y': Y.detach().cpu(),
+    }
+
+    if ddp:
+        rank_states = [None for _ in range(dist.get_world_size())]
+        dist.all_gather_object(rank_states, local_state)
+        return rank_states
+
+    return [local_state]
+
+def save_checkpoint(checkpoint_path, checkpoint):
+    tmp_path = checkpoint_path + '.tmp'
+    torch.save(checkpoint, tmp_path)
+    os.replace(tmp_path, checkpoint_path)
 
 def train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, device_type, raw_model):
     X, Y = get_batch('train', cfg.data_dir, cfg.batch_size, cfg.block_size, device, device_type)
