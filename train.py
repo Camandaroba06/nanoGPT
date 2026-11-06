@@ -139,7 +139,15 @@ def prepare_metrics_file(metrics_file, init_from, resume_iter):
         writer.writerows(previous_rows)
 
 def train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, device_type, raw_model):
-    X, Y = get_batch('train', cfg.data_dir, cfg.batch_size, cfg.block_size, device, device_type)
+    if cfg.resume_rank_state is not None:
+        X = cfg.resume_rank_state['X'].to(device)
+        Y = cfg.resume_rank_state['Y'].to(device)
+    else:
+        X, Y = get_batch(
+            'train', cfg.data_dir, cfg.batch_size,
+            cfg.block_size, device, device_type
+        )
+        
     t0 = time.time()
     local_iter_num = 0
     iter_num = cfg.iter_num
