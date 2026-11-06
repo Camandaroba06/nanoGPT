@@ -1,11 +1,14 @@
 import os
 import time
 import math
+import random
+import csv
 import argparse
 from contextlib import nullcontext
 
 import numpy as np
 import torch
+import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
@@ -99,6 +102,41 @@ def save_checkpoint(checkpoint_path, checkpoint):
     tmp_path = checkpoint_path + '.tmp'
     torch.save(checkpoint, tmp_path)
     os.replace(tmp_path, checkpoint_path)
+
+def prepare_metrics_file(metrics_file, init_from, resume_iter):
+    columns = [
+        'iter',
+        'train_loss',
+        'val_loss',
+        'train_ppl',
+        'val_ppl',
+        'step_time_ms',
+        'val_latency_ms'
+    ]
+
+    if init_from == 'scratch':
+        with open(metrics_file, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=columns)
+            writer.writeheader()
+        return
+
+    previous_rows = []
+
+    if os.path.exists(metrics_file):
+        with open(metrics_file, 'r', newline='') as f:
+            reader = csv.DictReader(f)
+
+            for row in reader:
+                try:
+                    if int(row['iter']) < resume_iter:
+                        previous_rows.append(row)
+                except (ValueError, KeyError):
+                    continue
+
+    with open(metrics_file, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(previous_rows)
 
 def train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, device_type, raw_model):
     X, Y = get_batch('train', cfg.data_dir, cfg.batch_size, cfg.block_size, device, device_type)
