@@ -61,6 +61,27 @@ def get_lr(it, warmup_iters, lr_decay_iters, learning_rate, min_lr):
     coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) 
     return min_lr + coeff * (learning_rate - min_lr)
 
+def get_rng_state():
+    state = {
+        'python': random.getstate(),
+        'numpy': np.random.get_state(),
+        'torch': torch.get_rng_state(),
+    }
+
+    if torch.cuda.is_available():
+        state['cuda'] = torch.cuda.get_rng_state_all()
+
+    return state
+
+
+def set_rng_state(state):
+    random.setstate(state['python'])
+    np.random.set_state(state['numpy'])
+    torch.set_rng_state(state['torch'])
+
+    if torch.cuda.is_available() and 'cuda' in state:
+        torch.cuda.set_rng_state_all(state['cuda'])
+
 def train_loop(model, optimizer, scaler, ctx, cfg, master_process, device, device_type, raw_model):
     X, Y = get_batch('train', cfg.data_dir, cfg.batch_size, cfg.block_size, device, device_type)
     t0 = time.time()
